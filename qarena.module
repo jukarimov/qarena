@@ -1,0 +1,263 @@
+<?php
+
+function mynl2br($s) {
+
+	$t = str_split($s);
+	$r = Array();
+	$l = strlen($s);
+
+	for($i=0; $i < $l; $i++)
+	{
+		if ($t[$i] == "\r" && $t[$i+1] == "\n") {
+			array_push($r, "<br>");
+			$i++;
+		} else
+			$r[$i] = $t[$i];
+	}
+
+	return implode($r); // Usage f("foo\r\nbar") => "foo<br>bar";
+}
+
+function qarena_display_page() {
+
+	// Start page output
+	$page_output = '';
+   
+	// $qarena_form_state will be set in the submit function if the form is properly filled in
+	global $qarena_form_state;
+	global $qarena_form_answer_update;
+	global $user;
+   
+	// Store form output to display later if needed
+	$form_output = drupal_get_form('qarena_sample');
+   
+	if (isset($qarena_form_state)) {
+   
+		// form has been correctly submitted
+		$question = $qarena_form_state['values']['question'];
+		$answer = $qarena_form_state['values']['answer'];
+
+		$question = mynl2br($question);
+		$question = mysql_real_escape_string($question);
+
+		$answer = mynl2br($answer);
+		$answer = mysql_real_escape_string($answer);
+
+		$res = $question . '<br>--------<br>' . $answer;
+	   
+		for ($i = 0; $i < 10; $i++) {
+			if (isset($qarena_form_state['values']['answer_' . $i])) {
+				$a = $qarena_form_state['values']['answer_' . $i];
+				$q = $qarena_form_state['values']['question_' . $i];
+
+				$a=mynl2br($a);
+				$a=mysql_real_escape_string($a);
+
+				$q=mynl2br($q);
+				$q=mysql_real_escape_string($q);
+
+				$page_output .= '<p>[' . $q . ':' . $a . ']</p>';
+
+				$sql = "UPDATE qatab SET answ='$a' WHERE ques='$q';";
+
+				$r = db_query($sql);
+				if (!$r)
+					$page_output .= "db_query resulted false";
+			}
+			else {
+				break;
+			}
+		}
+		// display the result
+		$page_output .= '<p>' . $res . '</p>';
+
+		// Link back to this page to try again
+		$page_output .= '<p>'. l('Go back', 'qarena') . '</p>';
+	   
+		if ($question != '')
+		{
+			$q = "INSERT INTO qatab (user,ques,answ) VALUES ('";
+
+			$uname = $user->name;
+
+			if ($uname == '')
+				$uname = 'www';
+
+			$q .= $uname;
+			$q .= "','";
+
+			$q .= $question;
+			$q .= "','";
+
+			$q .= $answer;
+			$q .= "');";
+
+			$r = db_query($q);
+
+			if (!$r)
+				$page_output .= "db_query result is not true";
+		}
+
+	} else {
+		// The form has not been submitted or there is a form error
+		// add form output to page output
+		$page_output .= $form_output;
+
+		$result = db_query('SELECT ques, answ FROM qatab WHERE answ != ""');
+		$c = 0;
+		while ($row = db_fetch_object($result))
+		{
+			$page_output .= $row->ques . '<br>';
+			$page_output .= '<textarea id="ques'.$c.'">Your answer</textarea><br>';
+			$jscheck = 'alert(document.getElementById(\'ques'.$c.'\').value == \'';
+			$jscheck .= $row->answ . '\');';
+			$page_output .= '<input type="submit" onclick="'.$jscheck.'"/>&nbsp;';
+			$jsshow = 'javascript:alert(\'' . $row->answ . '\');';
+			$page_output .= '<a href="'.$jsshow.'">show answer</a>';
+			$page_output .= '<br>---------<br>';
+			$c++;
+		}
+	}
+   
+	return $page_output;
+}
+
+/**
+* Implementation of hook_help().
+*
+* Throughout Drupal, hook_help() is used to display help text at the top of
+* pages. Some other parts of Drupal pages get explanatory text from these hooks
+* as well. We use it here to provide a description of the module on the
+* module administration page.
+*/
+function qarena_help($section) {
+	switch ($section) {
+	case 'admin/modules#description':
+		// This description is shown in the listing at admin/modules.
+		return t('The qarena module multiplies two numbers together.');
+	}
+}
+
+/**
+* Implementation of hook_perm().
+*
+*/
+function qarena_perm() {
+	return array('update');
+}
+
+/**
+* Implementation of hook_menu().
+*
+*/
+function qarena_menu() {
+	$items = array();
+
+	// This determines the path used to show the form and also makes a menu entry
+	// This first path is for the entry form
+	$items['qarena'] = array(
+		'title' => 'QArena',
+		'description' => 'question answer site',
+		'page callback' => 'qarena_display_page',
+		'callback' => 'qarena_display_page',
+		// drupal_get_form, registers the given form in drupal
+		'access arguments' => array('update'),
+	);
+
+	return $items;
+}
+
+function qarena_sample() {
+
+	$form = array();
+   
+	// Build up the form
+	// See api.drupal.org/?q=api/file/developer/topics/forms_api.html/ (quickstart guide)
+	// and api.drupal.org/api/file/developer/topics/forms_api_reference.html (forms api)
+	// for more information on creating forms
+  
+	$form['question'] = array(
+	  '#type' => 'textarea',
+	  '#title' => t('Describe your question'), 
+	  '#rows' => 4,
+	  '#cols' => 20,
+	  '#description' => t('Don\'t make it hard to guess pls ;)')
+	);
+  
+	$form['answer'] = array(
+	  '#type' => 'textarea',
+	  '#title' => t('What is the answer for it?'),
+	  '#rows' => 4,
+	  '#cols' => 20,
+	  '#description' => t('Answer for the question above, leave blank if you dont have one')
+	);
+  
+	// The name of the form determines the
+	// default validation and submit function names
+	//
+	// In this case
+	//	Validation: qarena_sample_validate()
+	//	Submit: qarena_sample_submit()
+	
+	$result = db_query('SELECT ques, answ FROM qatab where answ = ""');
+	$c = 0;
+	while ($row = db_fetch_object($result))
+	{
+		$form['question_' . $c] = array(
+			'#type' => 'textarea',
+			'#title' => t('Unaswered Question #' . $c),
+			'#rows' => 4,
+			'#cols' => 20,
+			'#value' => $row->ques,
+		);
+
+		$form['answer_' . $c] = array(
+			'#type' => 'textarea',
+			'#title' => t('Answer for question #' . $c),
+			'#rows' => 4,
+			'#cols' => 20,
+			'#answer' => 1,
+		);
+
+		$c++;
+	}
+
+	// Make sure we have a submit button
+
+	$form['submit'] = array(
+		'#type' => 'submit',
+		'#value' => t('submit')
+	);
+  
+	return $form;
+}
+
+function qarena_sample_validate($form, &$form_state) {
+
+	$answered = FALSE;
+
+	if (isset($form_state['values']['answer_0']))
+	{
+		if ($form_state['values']['answer_0'] != '')
+			$answered = TRUE;
+	}
+
+	if ($form_state['values']['question'] == '' && !$answered)
+	{
+		form_set_error('value1', t('Sorry, You must provide the question.'));
+	}
+}
+
+function qarena_sample_submit($form, &$form_state) {
+	// Set redirect to FALSE to prevent a redirect and make the form data available
+	// to your function
+	
+	$form_state['redirect'] = FALSE;
+
+	// Copy form state to global variable for use in qarena_display_page()
+	// after form has been processed in drupal_get_form()
+	global $qarena_form_state;
+	$qarena_form_state = $form_state;
+}
+
+?>
